@@ -2391,7 +2391,7 @@ FILE *in;
 			bt_lockpage (BtLockRead, set->latch);
 			next = bt_getid (set->page->right);
 			cnt += set->page->act;
-
+/*
 			for( slot = 0; slot++ < set->page->cnt; )
 			 if( next || slot < set->page->cnt )
 			  if( !slotptr(set->page, slot)->dead ) {
@@ -2399,7 +2399,7 @@ FILE *in;
 				fwrite (ptr->key, ptr->len, 1, stdout);
 				fputc ('\n', stdout);
 			  }
-
+*/
 			bt_unlockpage (BtLockRead, set->latch);
 			bt_unpinlatch (set->latch);
 			bt_unpinpool (set->pool);

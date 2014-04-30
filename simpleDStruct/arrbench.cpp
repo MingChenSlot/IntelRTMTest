@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <vector>
 #include <list>
+#include <set>
 #include <time.h>
 #include <sched.h>
 #include "synclib.h"
@@ -210,6 +211,7 @@ void fl_seq_access(T &data, long tid, int transac_size, int nit) {
 	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
 		locks[i].acquire();
 	}
+
 	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
 		// write after read
 		data[i] = data[i] + 1;
@@ -224,11 +226,13 @@ template <class T>
 void fl_random_access(T &data, long tid, int transac_size, int nit) {
 	int base = tid * REPEATS + nit;
 	// sort accessing array entry by the their orders in the array, guaranteeing deadlock free
+	set<int> sorted_set;
 	list<int> sorted;
 	list<int>::iterator it;
 
 	for (int i = 0; i < transac_size; i++) {
 		sorted.push_back(v_random[base + i]);
+		sorted_set.insert(v_random[base+i]);
 	}
 	sorted.sort();
 	/*
@@ -239,13 +243,13 @@ void fl_random_access(T &data, long tid, int transac_size, int nit) {
 		data[sorted[i]] = data[sorted[i]] + 1;
 	}
 	*/
-	tr(sorted, it) {
+	tr(sorted_set, it) {
 		locks[*it].acquire();
 	}
 	tr(sorted, it) {
 		data[*it] = data[*it] + 1;
 	}
-	tr(sorted, it) {
+	tr(sorted_set, it) {
 		locks[*it].release();
 	}
 }

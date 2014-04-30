@@ -1855,7 +1855,8 @@ uint  slot;
 uid id = 0;
 BtKey ptr;
 
-	if( slot = bt_loadpage (bt, set, key, len, 0, BtLockRead) )
+//	if( slot = bt_loadpage (bt, set, key, len, 0, BtLockRead) )
+	if( slot = bt_nolock_loadpage (bt, set, key, len, 0) )
 		ptr = keyptr(set->page, slot);
 	else
 		return 0;
@@ -1867,7 +1868,7 @@ BtKey ptr;
 	  if( !keycmp (ptr, key, len) )
 		id = bt_getid(slotptr(set->page,slot)->id);
 
-	bt_unlockpage (BtLockRead, set->latch);
+//	bt_unlockpage (BtLockRead, set->latch);
 	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	return id;
@@ -2494,10 +2495,25 @@ FILE *in;
 			  else if( args->num )
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
-			  if( bt_findkey (bt, key, len) )
-				found++;
-			  else if( bt->err )
-				fprintf(stderr, "Error %d Syserr %d Line: %d\n", bt->err, errno, line), exit(0);
+			  // transactional findkey
+			  if (transaction_start(&htm)) {
+				if (lock.v) 
+					transaction_abort();
+				if( bt_findkey (bt, key, len) )
+					found++;
+				else if( bt->err )
+					fprintf(stderr, "Error %d Syserr %d Line: %d\n", bt->err, errno, line), exit(0);
+				transaction_commit();
+			  } else {
+				lock_acquire(&lock);
+				if( bt_findkey (bt, key, len) )
+					found++;
+				else if( bt->err )
+					fprintf(stderr, "Error %d Syserr %d Line: %d\n", bt->err, errno, line), exit(0);
+				lock.count++;
+				lock_release(&lock);
+			  }
+
 			  len = 0;
 			}
 			else if( len < 255 )
@@ -2513,19 +2529,31 @@ FILE *in;
 			else
 				break;
 			set->latch = bt_pinlatch (bt, page_no);
-			bt_lockpage (BtLockRead, set->latch);
-			next = bt_getid (set->page->right);
+//			bt_lockpage (BtLockRead, set->latch);
+			if (transaction_start(&htm)) {
+				if (lock.v) 
+					transaction_abort();
+				// do sth
+				next = bt_getid (set->page->right);
+				transaction_commit();
+			} else {
+				lock_acquire(&lock);
+				// do sth
+				next = bt_getid (set->page->right);
+				lock.count++;
+				lock_release(&lock);
+			}
 			cnt += set->page->act;
-
-			for( slot = 0; slot++ < set->page->cnt; )
-			 if( next || slot < set->page->cnt )
-			  if( !slotptr(set->page, slot)->dead ) {
-				ptr = keyptr(set->page, slot);
-				fwrite (ptr->key, ptr->len, 1, stdout);
+			/*
+			   for( slot = 0; slot++ < set->page->cnt; )
+			   if( next || slot < set->page->cnt )
+			   if( !slotptr(set->page, slot)->dead ) {
+			   ptr = keyptr(set->page, slot);
+			   fwrite (ptr->key, ptr->len, 1, stdout);
 				fputc ('\n', stdout);
 			  }
-
-			bt_unlockpage (BtLockRead, set->latch);
+*/
+//			bt_unlockpage (BtLockRead, set->latch);
 			bt_unpinlatch (set->latch);
 			bt_unpinpool (set->pool);
 	  	} while( page_no = next );
