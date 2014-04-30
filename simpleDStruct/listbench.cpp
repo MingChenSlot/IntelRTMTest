@@ -30,6 +30,7 @@
 #include <set>
 #include <time.h>
 #include <sched.h>
+//#include "stat.h"
 #include "synclib.h"
 #include "hwtimer.h"
 
@@ -38,16 +39,14 @@ using namespace std;
 #define tr(container, it) \
 	for(auto it = container.begin(); it != container.end(); it++)
 
-#define SIZE 10000
-#define TOTAL_WORKLOAD 10000
+#define SIZE 1000
+#define TOTAL_WORKLOAD 1000
 #define THREADS 8
 #define REPEATS (TOTAL_WORKLOAD / THREADS)
-
-// global data structure
-Lock l;
-vector<int> arr(SIZE, 1);
+// Global data structure
+Lock l; // global lock
+list<int> my_list(SIZE,1);
 vector<Lock> locks(SIZE);
-
 int access_pattern = 0;
 int sync_mode = 0;
 int trans_size;
@@ -67,22 +66,37 @@ void bind(int pproc) {
 
 }
 
-
 /*************************************
  * Simple Transactional Access (HLE)
  *************************************/
-
 template <class T>
 void st_seq_access(T &data, long tid, int transac_size, int nit) {
 	int seed = v_random[tid * REPEATS + nit];
+	list<int>::iterator it_begin, it_mid, it_end, i;
+	it_begin = my_list.begin();
+	it_end = my_list.end();
+	
+	// get the start point
+	for (int j = 0; j<seed; j++)
+	{
+	it_begin++;    
+	}
+	
+	// get the stop point if can not reach the end of the list 
+	it_mid = it_begin;
+	for (int k = 0; k < transac_size; k++)
+	{
+		it_mid++;
+	}
+
 //	cout << seed << endl;
 	if (_xbegin() == _XBEGIN_STARTED) {
 		if (l.is_locked()) {
 			_xabort(1);	
 		}
-		for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
+		for (i = it_begin; i != it_mid && i != it_end ; i++) {
 			// write after read
-			data[i] = data[i] + 1;
+			*i = *i + 1;
 		}
 		_xend();
 //		cout << "Succ" << endl;
@@ -90,9 +104,9 @@ void st_seq_access(T &data, long tid, int transac_size, int nit) {
 //		cout << "Fail" << endl;
 		l.acquire();
 		l.add_count();
-		for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
+		for (i = it_begin; i != it_mid && i != it_end ; i++) {
 			// write after read
-			data[i] = data[i] + 1;
+			*i = *i + 1;
 		}
 		l.release();
 	}
@@ -102,19 +116,30 @@ template <class T>
 void st_random_access(T &data, long tid, int transac_size, int nit) {
 	int base = tid * REPEATS + nit;
 //	cout << seed << endl;
+	list<int>::iterator it;
+	it = my_list.begin();
+
 	if (_xbegin() == _XBEGIN_STARTED) {
 		if (l.is_locked()) {
 			_xabort(1);	
 		}
 		for (int i = 0; i < transac_size; i++) {
-			data[v_random[base + i]] = data[v_random[base + i]] + 1;
+			for (int k = 0; k < v_random[base+i]; k++)
+			{
+				it++;
+			}
+			*it = *it + 1;
 		}
 		_xend();
 	} else {
 		l.acquire();
 		l.add_count();
 		for (int i = 0; i < transac_size; i++) {
-			data[v_random[base + i]] = data[v_random[base + i]] + 1;
+			for (int k = 0; k < v_random[base+i]; k++)
+			{
+				it++;
+			}
+			*it = *it + 1;
 		}
 		l.release();
 	}
@@ -125,26 +150,45 @@ void st_random_access(T &data, long tid, int transac_size, int nit) {
  * Abort Aware Transactional Access
  ****************************************************/
 template <class T>
-void aat_seq_access(T &data, long tid, int transac_size, int nit, HTM *htm) {
+void aat_seq_access(T &data, long tid, int transac_size, int nit) {
 	int seed = v_random[tid * REPEATS + nit];
+	HTM htm;
+	
+	list<int>::iterator it_begin, it_mid, it_end, i;
+	it_begin = my_list.begin();
+	it_end = my_list.end();
+	
+	// get the start point
+	for (int j = 0; j<seed; j++)
+	{
+	it_begin++;    
+	}
+	
+	// get the stop point if can not reach the end of the list 
+	it_mid = it_begin;
+	for (int k = 0; k < transac_size; k++)
+	{
+		it_mid++;
+	}
 //	cout << seed << endl;
-	if (htm->transaction_start()) {
+	
+	if (htm.transaction_start()) {
 		if (l.is_locked()) {
-			htm->transaction_abort();	
+			htm.transaction_abort();	
 		}
-		for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
+		for (i = it_begin; i != it_mid && i != it_end ; i++) {
 			// write after read
-			data[i] = data[i] + 1;
+			*i = *i + 1;
 		}
-		htm->transaction_commit();	
+		htm.transaction_commit();	
 //		cout << "Succ" << endl;
 	} else {
 //		cout << "Fail" << endl;
 		l.acquire();
 		l.add_count();
-		for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
+		for (i = it_begin; i != it_mid && i != it_end ; i++) {
 			// write after read
-			data[i] = data[i] + 1;
+			*i = *i + 1;
 		}
 		l.release();
 	}
@@ -154,22 +198,33 @@ void aat_seq_access(T &data, long tid, int transac_size, int nit, HTM *htm) {
 
 
 template <class T>
-void aat_random_access(T &data, long tid, int transac_size, int nit, HTM *htm) {
+void aat_random_access(T &data, long tid, int transac_size, int nit) {
 	int base = tid * REPEATS + nit;
 //	cout << seed << endl;
-	if (htm->transaction_start()) {
+	HTM htm;
+	list<int>::iterator it = my_list.begin();
+
+	if (htm.transaction_start()) {
 		if (l.is_locked()) {
-			htm->transaction_abort();	
+			htm.transaction_abort();	
 		}
 		for (int i = 0; i < transac_size; i++) {
-			data[v_random[base + i]] = data[v_random[base + i]] + 1;
+			for (int k = 0; k < v_random[base+i]; k++)
+			{
+				it++;
+			}
+			*it = *it + 1;
 		}
-		htm->transaction_commit();	
+		htm.transaction_commit();	
 	} else {
 		l.acquire();
 		l.add_count();
 		for (int i = 0; i < transac_size; i++) {
-			data[v_random[base + i]] = data[v_random[base + i]] + 1;
+			for (int k = 0; k < v_random[base+i]; k++)
+			{
+				it++;
+			}
+			*it = *it + 1;
 		}
 		l.release();
 	}
@@ -182,11 +237,28 @@ void aat_random_access(T &data, long tid, int transac_size, int nit, HTM *htm) {
 template <class T>
 void gl_seq_access(T &data, long tid, int transac_size, int nit) {
 	int seed = v_random[tid * REPEATS + nit];
-	l.acquire();
-	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
-		// write after read
-		data[i] = data[i] + 1;
+	
+	list<int>::iterator it_begin, it_mid, it_end, i;
+	it_begin = my_list.begin();
+	it_end = my_list.end();
+	
+	// get the start point
+	for (int j = 0; j<seed; j++)
+	{
+	it_begin++;    
 	}
+	// get the stop point if can not reach the end of the list 
+	it_mid = it_begin;
+	for (int k = 0; k < transac_size; k++)
+	{
+		it_mid++;
+	}
+
+	l.acquire();
+		for (i = it_begin; i != it_mid && i != it_end ; i++) {
+			// write after read
+			*i = *i + 1;
+		}
 	l.release();
 }
 
@@ -194,9 +266,15 @@ void gl_seq_access(T &data, long tid, int transac_size, int nit) {
 template <class T>
 void gl_random_access(T &data, long tid, int transac_size, int nit) {
 	int base = tid * REPEATS + nit;
+	list<int>::iterator it = my_list.begin();
+
 	l.acquire();
 	for (int i = 0; i < transac_size; i++) {
-		data[v_random[base + i]] = data[v_random[base + i]] + 1;
+			for (int k = 0; k < v_random[base+i]; k++)
+			{
+				it++;
+			}
+			*it = *it + 1;
 	}
 	l.release();
 }
@@ -208,12 +286,27 @@ void gl_random_access(T &data, long tid, int transac_size, int nit) {
 template <class T>
 void fl_seq_access(T &data, long tid, int transac_size, int nit) {
 	int seed = v_random[tid * REPEATS + nit];
+	list<int>::iterator it_begin, it_mid, it_end, k;
+	it_begin = my_list.begin();
+	it_end = my_list.end();
+	
+	// get the start point
+	for (int j = 0; j<seed; j++)
+	{
+	it_begin++;    
+	}
+	// get the stop point if can not reach the end of the list 
+	it_mid = it_begin;
+	for (int k = 0; k < transac_size; k++)
+	{
+		it_mid++;
+	}
+
 	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
 		locks[i].acquire();
 	}
-	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
-		// write after read
-		data[i] = data[i] + 1;
+	for (k = it_begin; k != it_mid && k != it_end ; k++) {
+		*k = *k + 1;
 	}
 	for (int i = seed; i < (seed + transac_size) && i < SIZE; i++) {
 		locks[i].release();
@@ -228,6 +321,7 @@ void fl_random_access(T &data, long tid, int transac_size, int nit) {
 	set<int> sorted_set;
 	list<int> sorted;
 	list<int>::iterator it;
+	list<int>::iterator it2 = my_list.begin();
 
 	for (int i = 0; i < transac_size; i++) {
 		sorted.push_back(v_random[base + i]);
@@ -242,11 +336,21 @@ void fl_random_access(T &data, long tid, int transac_size, int nit) {
 		data[sorted[i]] = data[sorted[i]] + 1;
 	}
 	*/
+	//tr(sorted, it){
+	//	cout << *it << endl;
+	//}
+	
 	tr(sorted_set, it) {
+	//	cout << *it << endl;
 		locks[*it].acquire();
 	}
 	tr(sorted, it) {
-		data[*it] = data[*it] + 1;
+			for (int k = 0; k < *it; k++)
+			{
+				it2++;
+			}
+		
+			*it2= *it2 + 1;
 	}
 	tr(sorted_set, it) {
 		locks[*it].release();
@@ -262,37 +366,35 @@ void *target(void *threadid) {
 	if (sync_mode == 2) {
 		for (int i = 0; i < REPEATS; i++) {
 			switch(access_pattern) {
-			case 1: st_seq_access(arr, tid, trans_size, i); break;
-			case 2: st_random_access(arr, tid, trans_size, i); break;
+			case 1: st_seq_access(my_list, tid, trans_size, i); break;
+			case 2: st_random_access(my_list, tid, trans_size, i); break;
 			default: cout << "Error" << endl;
 			}
 		}	
 	} else if (sync_mode == 3) {
 		for (int i = 0; i < REPEATS; i++) {
 			switch(access_pattern) {
-			case 1: gl_seq_access(arr, tid, trans_size, i); break;
-			case 2: gl_random_access(arr, tid, trans_size, i); break;
+			case 1: gl_seq_access(my_list, tid, trans_size, i); break;
+			case 2: gl_random_access(my_list, tid, trans_size, i); break;
 			default: cout << "Error" << endl;
 			}
 		}	
 	} else if (sync_mode == 4) {
 		for (int i = 0; i < REPEATS; i++) {
 			switch(access_pattern) {
-			case 1: fl_seq_access(arr, tid, trans_size, i); break;
-			case 2: fl_random_access(arr, tid, trans_size, i); break;
+			case 1: fl_seq_access(my_list, tid, trans_size, i); break;
+			case 2: fl_random_access(my_list, tid, trans_size, i); break;
 			default: cout << "Error" << endl;
 			}
 		}	
 	} else if (sync_mode == 5) {
-		HTM htm;
 		for (int i = 0; i < REPEATS; i++) {
 			switch(access_pattern) {
-			case 1: aat_seq_access(arr, tid, trans_size, i, &htm); break;
-			case 2: aat_random_access(arr, tid, trans_size, i, &htm); break;
+			case 1: aat_seq_access(my_list, tid, trans_size, i); break;
+			case 2: aat_random_access(my_list, tid, trans_size, i); break;
 			default: cout << "Error" << endl;
 			}
 		}	
-//		htm.print_stat();
 	}
 	return 0;
 }
@@ -310,7 +412,7 @@ int main(int argc, char **argv) {
 	initTimer(&timer);
 	
 	if (argc != 4) {
-		cout << "./arr access_pattern(-seq -rand) sync_mode(-t -gl -fl -aat) transactional_size" << endl;
+		cout << "./arr access_pattern(-seq -rand) sync_mode(-st -gl -fl -aat) transactional_size" << endl;
 		return 0;
 	}
 	trans_size = atoi(argv[3]);
@@ -321,18 +423,18 @@ int main(int argc, char **argv) {
 		// initialize random queue
 		for (int i = 0; i < (REPEATS * THREADS); i++) {
 			srand(time(NULL) + i);
-			seed = rand() % (SIZE-trans_size);
+			seed = rand() % (SIZE - trans_size);
 			v_random.push_back(seed);
 		}
 	} else if (strcmp(argv[1], "-rand") == 0) {
 		access_pattern = 2;
 		for (int i = 0; i < (REPEATS * THREADS * trans_size); i++) {
 			srand(time(NULL) + i);
-			seed = rand() % (SIZE - trans_size);
+			seed = rand() % (SIZE - trans_size);// make sure operate on a entire transaction size
 			v_random.push_back(seed);
 		}
 	} else {
-		cout << "./arr access_pattern(-seq -rand) sync_mode(-t -gl -fl -aat) transactional_size" << endl;
+		cout << "./arr access_pattern(-seq -rand) sync_mode(-st -gl -fl -aat) transactional_size" << endl;
 		return 0;
 	}
 	
