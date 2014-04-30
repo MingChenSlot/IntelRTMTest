@@ -29,6 +29,7 @@
 #include <vector>
 //#include <algorithm>
 #include <list>
+#include <set>
 #include <time.h>
 #include <sched.h>
 //#include "stat.h"
@@ -143,20 +144,24 @@ template <class T>
 void fl_random_access(T &data, long tid, int transac_size, int nit) {
 	int base = tid * REPEATS + nit;
 	// sort accessing array entry by the their orders in the array, guaranteeing deadlock free
+	set<int> sorted_set;
 	list<int> sorted;
 	list<int>::iterator it;
 
 	for (int i = 0; i < transac_size; i++) {
 		sorted.push_back(v_random[base + i]);
+		sorted_set.insert(v_random[base + i]);
 	}
+
 	sorted.sort();
-	tr (sorted, it) {
+
+	tr (sorted_set, it) {
 		locks[*it]->acquire();
 	}
 	tr (sorted, it) {
 		data[*it] = data[*it] + 1;
 	}
-	tr (sorted, it) {
+	tr (sorted_set, it) {
 		locks[*it]->release();
 	}
 }
@@ -202,7 +207,7 @@ int main(int argc, char **argv) {
 	unordered_map<int, int>::iterator it;
 	for (int i = 0; i < (REPEATS * THREADS * trans_size); i++) {
 		srand(time(NULL) + i);
-		seed = rand() % SIZE;
+		seed = rand() % (SIZE - trans_size);
 		v_random.push_back(seed);
 		// assign 1 to all bucket in ht table (key, 1)
 		ht[seed] = 1;
