@@ -15,71 +15,55 @@
 * 
 */
 
-#include <vector>
 #define NUM_ABORTS 8
 
-using namespace std;
+typedef struct STAT{
+	int counter[NUM_ABORTS];
+} Stat;
 
-class Statistic {
-	vector<int> counter;
-	void init() {
-		counter.clear();
-		counter.resize(NUM_ABORTS);
+inline void init_stat(Stat *stat) {
+	int i = 0;
+	for (; i < NUM_ABORTS; ++i) {
+		stat->counter[i] = 0;
 	}
-
-public:
-	Statistic() {
-		init();
-	}
-
-	~Statistic() {
-		clear();
-	}
-
-	void add_data(int status) {
-		if (status == _XBEGIN_STARTED) {
-			counter[0]++;
-		} else if (status == _XABORT_EXPLICIT) {
-			counter[1]++;
-		} else if (status == _XABORT_RETRY) {
-			counter[2]++;
-		} else if (status == _XABORT_CONFLICT) {
-			counter[3]++;
-		} else if (status == _XABORT_CAPACITY) {
-			counter[4]++;
-		} else if (status == _XABORT_DEBUG) {
-			counter[5]++;
-		} else if (status == _XABORT_NESTED) {
-			counter[6]++;
-		} else {
-			counter[7]++;
-		}
-	}
+}
 	
-	void print_stat(int arr_size) {
-		if (arr_size < 1024) 
-			cout << arr_size << " Bytes" << endl;
-		else {
-			cout << arr_size / 1024 << " KB" << endl;
-		}
-
-		cout << "\tSucc" << "\t";
-		cout << "Exp"  << "\t";
-		cout << "Retry" << "\t";
-		cout << "Confl" << "\t";
-		cout << "Cap" 	<< "\t";
-		cout << "Debug" << "\t";
-		cout << "Nest"  << "\t";
-		cout << "Other" << "\n";
-		for (int i = 0; i < NUM_ABORTS; ++i) {
-			std::cout << "\t" << counter[i];
-		}
-		cout << "\n";
-		init();
+inline void add_stat(Stat *stat, int status) {
+	if (status & _XBEGIN_STARTED) {
+		stat->counter[0]++;
+	} else if (status & _XABORT_EXPLICIT) {
+		stat->counter[1]++;
+	} else if (status & _XABORT_RETRY) {
+		stat->counter[2]++;
+	} else if (status & _XABORT_CONFLICT) {
+		stat->counter[3]++;
+	} else if (status & _XABORT_CAPACITY) {
+		stat->counter[4]++;
+	} else if (status & _XABORT_DEBUG) {
+		stat->counter[5]++;
+	} else if (status & _XABORT_NESTED) {
+		stat->counter[6]++;
+	} else {
+		stat->counter[7]++;
 	}
-
-	void clear() {
-		counter.clear();
-	}
-};
+}
 	
+inline void print_stat(Stat *stat) {
+
+	printf("\tSucc\t");
+	printf("Exp\t");
+	printf("Retry\t");
+	printf("Confl\t");
+	printf("Cap\t");
+	printf("Debug\t");
+	printf("Nest\t");
+	printf("Other\t\n");
+	int i = 0;
+
+	for (; i < NUM_ABORTS; ++i) {
+		printf("\t%d", stat->counter[i]);
+	}
+	printf("\n");
+	init_stat(stat);
+}
+

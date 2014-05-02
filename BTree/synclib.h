@@ -22,6 +22,7 @@
 #include <pthread.h>
 #include <math.h>
 #include <stdio.h>
+#include "stat.h"
 
 typedef struct LOCK{
 	pthread_mutex_t m;
@@ -74,6 +75,13 @@ inline int _htm_begin(Htm *htm) {
 	return (htm->status == _XBEGIN_STARTED);
 }
 
+// for statistic 
+inline int _htm_begin_stat(Htm *htm, Stat *stat) {
+	htm->status = _xbegin();
+	add_stat(stat, htm->status);
+	return (htm->status == _XBEGIN_STARTED);
+}
+
 inline void _htm_commit() {
 	_xend();
 }
@@ -93,6 +101,7 @@ inline void _htm_abort() {
  *	2 ~ immediately retry
  */
 inline int _retry(Htm *htm) {
+	// printf("\nstatus:%d\n", htm->status);
 	// if abort count is large than 10, give up retrying, use fallback path
 	if (htm->abort_count >= 10 || htm->status == _XABORT_CAPACITY) {
 		return 0;
@@ -120,6 +129,31 @@ inline int transaction_start(Htm *htm) {
 	for (htm->abort_count = 0; htm->abort_count < 10; htm->abort_count++) {
 		//		cout << "abort count: " << abort_count << endl;
 		if (_htm_begin(htm)) return 1;		
+		else {
+			htm->retry_count++;
+			int retry_status = _retry(htm);
+			if (retry_status == 0) {
+				return 0;
+			} else if (retry_status == 1) {
+				_backoff(htm);
+				continue;
+			} else if (retry_status == 2) {
+				//					cout << "immediately retry " << endl;
+				continue;
+			}
+			else {
+				perror("Unexpected Error\n");
+				exit(1);
+			}
+		}
+	}
+	return 0;
+}
+
+inline int transaction_start_stat(Htm *htm, Stat *stat) {
+	for (htm->abort_count = 0; htm->abort_count < 10; htm->abort_count++) {
+		//		cout << "abort count: " << abort_count << endl;
+		if (_htm_begin_stat(htm, stat)) return 1;		
 		else {
 			htm->retry_count++;
 			int retry_status = _retry(htm);

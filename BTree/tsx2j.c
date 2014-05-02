@@ -1633,8 +1633,8 @@ void bt_freepage (BtDb *bt, BtPageSet *set)
 
 	// unlock released page
 
-	bt_unlockpage (BtLockDelete, set->latch);
-	bt_unlockpage (BtLockWrite, set->latch);
+//	bt_unlockpage (BtLockDelete, set->latch);
+//	bt_unlockpage (BtLockWrite, set->latch);
 	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 
@@ -1665,7 +1665,7 @@ uint idx;
 	memcpy (leftkey, ptr, ptr->len + 1);
 	page_no = set->page_no;
 
-	bt_unlockpage (BtLockWrite, set->latch);
+//	bt_unlockpage (BtLockWrite, set->latch);
 
 	//	insert new (now smaller) fence key
 
@@ -1677,7 +1677,7 @@ uint idx;
 	if( bt_deletekey (bt, rightkey+1, *rightkey, lvl+1) )
 		return bt->err;
 
-	bt_unlockpage (BtLockParent, set->latch);
+//	bt_unlockpage (BtLockParent, set->latch);
 	bt_unpinlatch(set->latch);
 	bt_unpinpool (set->pool);
 	return 0;
@@ -1701,8 +1701,8 @@ uint idx;
 	child->page_no = bt_getid (slotptr(root->page, idx)->id);
 
 	child->latch = bt_pinlatch (bt, child->page_no);
-	bt_lockpage (BtLockDelete, child->latch);
-	bt_lockpage (BtLockWrite, child->latch);
+//	bt_lockpage (BtLockDelete, child->latch);
+//	bt_lockpage (BtLockWrite, child->latch);
 
 	if( child->pool = bt_pinpool (bt, child->page_no) )
 		child->page = bt_page (bt, child->pool, child->page_no);
@@ -1714,7 +1714,7 @@ uint idx;
 
   } while( root->page->lvl > 1 && root->page->act == 1 );
 
-  bt_unlockpage (BtLockParentWrt, root->latch);
+//  bt_unlockpage (BtLockParentWrt, root->latch);
   bt_unpinlatch (root->latch);
   bt_unpinpool (root->pool);
   return 0;
@@ -1730,7 +1730,8 @@ uint slot, idx, dirty = 0, fence, found;
 BtPageSet set[1], right[1];
 BtKey ptr;
 
-	if( slot = bt_loadpage (bt, set, key, len, lvl, BtLockParentWrt) )
+//	if( slot = bt_loadpage (bt, set, key, len, lvl, BtLockParentWrt) )
+	if( slot = bt_nolock_loadpage (bt, set, key, len, lvl) )
 		ptr = keyptr(set->page, slot);
 	else
 		return bt->err;
@@ -1776,7 +1777,7 @@ BtKey ptr;
 	//	return if page is not empty
 
  	if( set->page->act ) {
-		bt_unlockpage(BtLockParentWrt, set->latch);
+//		bt_unlockpage(BtLockParentWrt, set->latch);
 		bt_unpinlatch (set->latch);
 		bt_unpinpool (set->pool);
 		return bt->found = found, 0;
@@ -1792,7 +1793,7 @@ BtKey ptr;
 
 	right->page_no = bt_getid(set->page->right);
 	right->latch = bt_pinlatch (bt, right->page_no);
-	bt_lockpage (BtLockParentWrt, right->latch);
+//	bt_lockpage (BtLockParentWrt, right->latch);
 
 	// pin page contents
 
@@ -1819,8 +1820,8 @@ BtKey ptr;
 	bt_putid (right->page->right, set->page_no);
 	right->page->kill = 1;
 
-	bt_unlockpage (BtLockWrite, right->latch);
-	bt_unlockpage (BtLockWrite, set->latch);
+//	bt_unlockpage (BtLockWrite, right->latch);
+//	bt_unlockpage (BtLockWrite, set->latch);
 
 	// redirect higher key directly to our new node contents
 
@@ -1834,12 +1835,12 @@ BtKey ptr;
 
 	//	obtain delete and write locks to right node
 
-	bt_unlockpage (BtLockParent, right->latch);
-	bt_lockpage (BtLockDelete, right->latch);
-	bt_lockpage (BtLockWrite, right->latch);
-	bt_freepage (bt, right);
+//	bt_unlockpage (BtLockParent, right->latch);
+//	bt_lockpage (BtLockDelete, right->latch);
+//	bt_lockpage (BtLockWrite, right->latch);
+//	bt_freepage (bt, right);
 
-	bt_unlockpage (BtLockParent, set->latch);
+//	bt_unlockpage (BtLockParent, set->latch);
 	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	bt->found = found;
@@ -2401,6 +2402,7 @@ uint __stdcall index_file (void *arg)
 #endif
 {
 Htm htm;
+Stat stat;
 int line = 0, found = 0, cnt = 0;
 uid next, page_no = LEAF_page;	// start on first page of leaves
 unsigned char key[256];
@@ -2425,6 +2427,9 @@ FILE *in;
 		break;
 
 	case 'w':
+		// statistic for debugging
+		init_stat(&stat);
+
 		fprintf(stderr, "started indexing for %s\n", args->infile);
 		if( in = fopen (args->infile, "rb") )
 		  while( ch = getc(in), ch != EOF )
@@ -2439,7 +2444,9 @@ FILE *in;
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
 			  // transactional insert			
-			  if (transaction_start(&htm)) {
+			  if (transaction_start_stat(&htm, &stat)) {
+//			  if (transaction_start(&htm)) {
+//			  if (_htm_begin(&htm)) {
 				if (lock.v) 
 					transaction_abort();
 				if( bt_insertkey (bt, key, len, 0, line, *tod) )
@@ -2458,6 +2465,8 @@ FILE *in;
 			else if( len < 255 )
 				key[len++] = ch;
 		fprintf(stderr, "finished %s for %d keys\n", args->infile, line);
+		print_stat(&stat);
+
 		break;
 
 	case 'd':
@@ -2473,8 +2482,21 @@ FILE *in;
 			  else if( args->num )
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
-			  if( bt_deletekey (bt, key, len, 0) )
-				fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
+			  // transactional delete
+			  if (transaction_start(&htm)) {
+				if (lock.v) 
+					transaction_abort();
+				if( bt_deletekey (bt, key, len, 0) )
+					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
+				transaction_commit();
+			  } else {
+				lock_acquire(&lock);
+				if( bt_deletekey (bt, key, len, 0) )
+					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
+				lock.count++;
+				lock_release(&lock);
+			  }
+
 			  len = 0;
 			}
 			else if( len < 255 )
