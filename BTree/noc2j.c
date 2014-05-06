@@ -1130,7 +1130,6 @@ BtPage page;
 
 void bt_unpinpool (BtPool *pool)
 {
-	return;
 #ifdef unix
 	__sync_fetch_and_add(&pool->pin, -1);
 #else
@@ -1155,8 +1154,8 @@ BtPool *pool, *node, *next;
 
 	if( pool = bt_findpool(bt, page_no, hashidx) ) {
 #ifdef unix
-//		__sync_fetch_and_or(&pool->pin, CLOCK_bit);
-//		__sync_fetch_and_add(&pool->pin, 1);
+		__sync_fetch_and_or(&pool->pin, CLOCK_bit);
+		__sync_fetch_and_add(&pool->pin, 1);
 #else
 		_InterlockedOr16 (&pool->pin, CLOCK_bit);
 		_InterlockedIncrement16 (&pool->pin);
@@ -1188,9 +1187,6 @@ BtPool *pool, *node, *next;
 
 	// pool table is full
 	//	find best pool entry to evict
-	
-	fprintf(stderr, "Too complicated design for no-pin segment eviction policy, quit\n");
-	exit(0);
 
 #ifdef unix
 	__sync_fetch_and_add(&bt->mgr->poolcnt, -1);
@@ -1221,7 +1217,6 @@ BtPool *pool, *node, *next;
 		//	page is pinned
 		//  or clock bit is set
 
-		
 		if( pool->pin ) {
 #ifdef unix
 			__sync_fetch_and_and(&pool->pin, ~CLOCK_bit);
@@ -1231,7 +1226,6 @@ BtPool *pool, *node, *next;
 //			bt_spinreleasewrite (&bt->mgr->latch[idx], 1);
 			continue;
 		}
-		
 
 		// unlink victim pool node from hash table
 
@@ -1432,7 +1426,7 @@ BtPool *prevpool;
 	// determine lock mode of drill level
 //	mode = (drill == lvl) ? lock : BtLockRead; 
 
-//	set->latch = bt_pinlatch (bt, page_no);
+	set->latch = bt_pinlatch (bt, page_no);
 	set->page_no = page_no;
 
 	// pin page contents
@@ -1451,7 +1445,7 @@ BtPool *prevpool;
 
 	if( prevpage ) {
 //	  bt_unlockpage(prevmode, prevlatch);
-//	  bt_unpinlatch (prevlatch);
+	  bt_unpinlatch (prevlatch);
 	  bt_unpinpool (prevpool);
 	  prevpage = 0;
 	}
@@ -1477,14 +1471,14 @@ BtPool *prevpool;
 		if( drill == lvl ) {
 //		if( lock != BtLockRead && drill == lvl ) {
 //		  bt_unlockpage(mode, set->latch);
-//		  bt_unpinlatch (set->latch);
+		  bt_unpinlatch (set->latch);
 		  bt_unpinpool (set->pool);
 		  continue;
 		}
 	}
 
 	prevpage = set->page_no;
-//	prevlatch = set->latch;
+	prevlatch = set->latch;
 	prevpool = set->pool;
 //	prevmode = mode;
 
@@ -1642,7 +1636,7 @@ void bt_freepage (BtDb *bt, BtPageSet *set)
 
 //	bt_unlockpage (BtLockDelete, set->latch);
 //	bt_unlockpage (BtLockWrite, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 
 	// unlock allocation page
@@ -1685,7 +1679,7 @@ uint idx;
 		return bt->err;
 
 //	bt_unlockpage (BtLockParent, set->latch);
-//	bt_unpinlatch(set->latch);
+	bt_unpinlatch(set->latch);
 	bt_unpinpool (set->pool);
 	return 0;
 }
@@ -1785,7 +1779,7 @@ BtKey ptr;
 
  	if( set->page->act ) {
 //		bt_unlockpage(BtLockParentWrt, set->latch);
-//		bt_unpinlatch (set->latch);
+		bt_unpinlatch (set->latch);
 		bt_unpinpool (set->pool);
 		return bt->found = found, 0;
 	}
@@ -1848,7 +1842,7 @@ BtKey ptr;
 //	bt_freepage (bt, right);
 
 //	bt_unlockpage (BtLockParent, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	bt->found = found;
 	return 0;
@@ -1877,7 +1871,7 @@ BtKey ptr;
 		id = bt_getid(slotptr(set->page,slot)->id);
 
 //	bt_unlockpage (BtLockRead, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	return id;
 }
@@ -1990,7 +1984,7 @@ uid left;
 	// release and unpin root
 
 //	bt_unlockpage(BtLockWrite, root->latch);
-//	bt_unpinlatch (root->latch);
+	bt_unpinlatch (root->latch);
 	bt_unpinpool (root->pool);
 	return 0;
 }
@@ -2082,7 +2076,7 @@ BtKey key;
 
 	// insert new fences in their parent pages
 
-//	right->latch = bt_pinlatch (bt, right->page_no);
+	right->latch = bt_pinlatch (bt, right->page_no);
 //	bt_lockpage (BtLockParent, right->latch);
 
 //	bt_lockpage (BtLockParent, set->latch);
@@ -2099,11 +2093,11 @@ BtKey key;
 		return bt->err;
 
 //	bt_unlockpage (BtLockParent, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 
 //	bt_unlockpage (BtLockParent, right->latch);
-//	bt_unpinlatch (right->latch);
+	bt_unpinlatch (right->latch);
 	return 0;
 }
 //  Insert new key into the btree at given level.
@@ -2113,6 +2107,7 @@ BTERR bt_insertkey (BtDb *bt, unsigned char *key, uint len, uint lvl, uid id, ui
 BtPageSet set[1];
 uint slot, idx;
 BtKey ptr;
+
 	while( 1 ) {
 //		if( slot = bt_loadpage (bt, set, key, len, lvl, BtLockWrite) )
 		if( slot = bt_nolock_loadpage (bt, set, key, len, lvl) )
@@ -2133,7 +2128,7 @@ BtKey ptr;
 			slotptr(set->page, slot)->tod = tod;
 			bt_putid(slotptr(set->page,slot)->id, id);
 //			bt_unlockpage(BtLockWrite, set->latch);
-//			bt_unpinlatch (set->latch);
+			bt_unpinlatch (set->latch);
 			bt_unpinpool (set->pool);
 			return 0;
 		}
@@ -2173,7 +2168,7 @@ BtKey ptr;
 	slotptr(set->page, slot)->dead = 0;
 
 //	bt_unlockpage (BtLockWrite, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	return 0;
 }
@@ -2229,13 +2224,13 @@ uid right;
 	else
 		return 0;
 
-//	set->latch = bt_pinlatch (bt, right);
+	set->latch = bt_pinlatch (bt, right);
 //	bt_lockpage(BtLockRead, set->latch);
 
 	memcpy (bt->cursor, set->page, bt->mgr->page_size);
 
 //	bt_unlockpage(BtLockRead, set->latch);
-//	bt_unpinlatch (set->latch);
+	bt_unpinlatch (set->latch);
 	bt_unpinpool (set->pool);
 	slot = 0;
 
@@ -2407,8 +2402,6 @@ void *index_file (void *arg)
 uint __stdcall index_file (void *arg)
 #endif
 {
-Htm htm;
-Stat stat;
 int line = 0, found = 0, cnt = 0;
 uid next, page_no = LEAF_page;	// start on first page of leaves
 unsigned char key[256];
@@ -2422,9 +2415,6 @@ FILE *in;
 
 	bt = bt_open (args->mgr);
 	time (tod);
-	htm_init(&htm);
-	// statistic for debugging
-	init_stat(&stat);
 
 	switch(args->type | 0x20)
 	{
@@ -2449,26 +2439,14 @@ FILE *in;
 			  else if( args->num )
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
-			  // transactional insert			
-//			  if (transaction_start_stat(&htm, &stat)) {
-			  if (transaction_start(&htm)) {
-//			  if (_htm_begin(&htm)) {
-				if (lock.v) 
-					transaction_abort();
-				if( bt_insertkey (bt, key, len, 0, line, *tod) )
-					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
-				transaction_commit();
-			  } else {
-				lock_acquire(&lock);
-				if( bt_insertkey (bt, key, len, 0, line, *tod) )
-					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
-				lock.count++;
-				lock_release(&lock);
-			  }
+			  lock_acquire(&lock);
+			  if( bt_insertkey (bt, key, len, 0, line, *tod) )
+				fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
+			  lock_release(&lock);
 
 			  len = 0;
 
-//			  if (line % 1000000 == 0)
+//			  if (line % 1000 == 0)
 //				fprintf(stderr, "Line: %d\n", line);
 			}
 			else if( len < 255 ) {
@@ -2492,21 +2470,10 @@ FILE *in;
 			  else if( args->num )
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
-			  // transactional delete
-//			  if (transaction_start(&htm)) {
-			  if (transaction_start_stat(&htm, &stat)) {
-				if (lock.v) 
-					transaction_abort();
-				if( bt_deletekey (bt, key, len, 0) )
-					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
-				transaction_commit();
-			  } else {
-				lock_acquire(&lock);
-				if( bt_deletekey (bt, key, len, 0) )
-					fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
-				lock.count++;
-				lock_release(&lock);
-			  }
+			  lock_acquire(&lock);
+			  if( bt_deletekey (bt, key, len, 0) )
+				fprintf(stderr, "Error %d Line: %d\n", bt->err, line), exit(0);
+			  lock_release(&lock);
 
 			  len = 0;
 			}
@@ -2528,24 +2495,12 @@ FILE *in;
 			  else if( args->num )
 		  		sprintf((char *)key+len, "%.9d", line + args->idx * args->num), len += 9;
 
-			  // transactional findkey
-			  if (transaction_start(&htm)) {
-				if (lock.v) 
-					transaction_abort();
-				if( bt_findkey (bt, key, len) )
-					found++;
-				else if( bt->err )
-					fprintf(stderr, "Error %d Syserr %d Line: %d\n", bt->err, errno, line), exit(0);
-				transaction_commit();
-			  } else {
 				lock_acquire(&lock);
 				if( bt_findkey (bt, key, len) )
 					found++;
 				else if( bt->err )
 					fprintf(stderr, "Error %d Syserr %d Line: %d\n", bt->err, errno, line), exit(0);
-				lock.count++;
 				lock_release(&lock);
-			  }
 
 			  len = 0;
 			}
@@ -2561,23 +2516,10 @@ FILE *in;
 				set->page = bt_page (bt, set->pool, page_no);
 			else
 				break;
-//			set->latch = bt_pinlatch (bt, page_no);
-//			bt_lockpage (BtLockRead, set->latch);
-			if (transaction_start(&htm)) {
-				if (lock.v) 
-					transaction_abort();
-				// do sth
-				next = bt_getid (set->page->right);
-				transaction_commit();
-			} else {
-				lock_acquire(&lock);
-				// do sth
-				next = bt_getid (set->page->right);
-				lock.count++;
-				lock_release(&lock);
-			}
+			set->latch = bt_pinlatch (bt, page_no);
+			next = bt_getid (set->page->right);
 			cnt += set->page->act;
-			/*
+			
 			   for( slot = 0; slot++ < set->page->cnt; )
 			   if( next || slot < set->page->cnt )
 			   if( !slotptr(set->page, slot)->dead ) {
@@ -2585,9 +2527,8 @@ FILE *in;
 			   fwrite (ptr->key, ptr->len, 1, stdout);
 				fputc ('\n', stdout);
 			  }
-*/
-//			bt_unlockpage (BtLockRead, set->latch);
-//			bt_unpinlatch (set->latch);
+
+			bt_unpinlatch (set->latch);
 			bt_unpinpool (set->pool);
 	  	} while( page_no = next );
 
@@ -2626,9 +2567,7 @@ FILE *in;
 		fprintf(stderr, " Total keys read %d\n", cnt);
 		break;
 	}
-	// print stat
 	bt_close (bt);
-//	print_stat(&stat);
 #ifdef unix
 	return NULL;
 #else
@@ -2656,12 +2595,6 @@ char key[1];
 BtMgr *mgr;
 BtKey ptr;
 BtDb *bt;
-
-// htm test
-Htm htm;
-	void *addr;	
-	int j  = 20;
-
 
 	if( argc < 3 ) {
 		fprintf (stderr, "Usage: %s idx_file Read/Write/Scan/Delete/Find [page_bits mapped_segments seg_bits line_numbers src_file1 src_file2 ... ]\n", argv[0]);
@@ -2708,19 +2641,7 @@ Htm htm;
 		fprintf(stderr, "Index Open Error %s\n", argv[1]);
 		exit (1);
 	}
-
-/*	
-	if (transaction_start(&htm)) {
-//		__sync_fetch_and_and(&j, ~CLOCK_bit);
-		// addr = mmap(NULL, j, PROT_READ, MAP_SHARED, mgr->idx, ALLOC_page * mgr->page_size);
-		// munmap (addr, j);
-		transaction_commit();
-		fprintf (stderr, "TSX succ\n");
-	} else {
-		fprintf (stderr, "TSX fail\n");
-	}
-	return 0;
-*/
+	
 	lock_init(&lock);
 
 	//	fire off threads
@@ -2758,10 +2679,10 @@ Htm htm;
 	fprintf(stderr, " user %dm%.3fs\n", (int)(elapsed/60), elapsed - (int)(elapsed/60)*60);
 	elapsed = getCpuTime(2);
 	fprintf(stderr, " sys  %dm%.3fs\n", (int)(elapsed/60), elapsed - (int)(elapsed/60)*60);
-	fprintf(stderr, " lock count: %d\n", lock.count);
 
 	bt_mgrclose (mgr);
 
+	fprintf(stderr, " lock count: %d\n", lock.count);
 	lock_destroy(&lock);
 }
 

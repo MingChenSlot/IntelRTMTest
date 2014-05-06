@@ -7,7 +7,9 @@ skew*
 *.txt
 lbt
 tsxbt
+nocbt
 distinct*
 .__afs*
 list
 BTree/pcm/*
+BTree/*result*/*
